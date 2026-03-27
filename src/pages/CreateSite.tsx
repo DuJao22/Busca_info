@@ -133,7 +133,13 @@ NÃO INVENTE DADOS. Se não souber ou não encontrar o local exato, retorne succ
           })
         });
 
-        const saveData = await saveRes.json();
+        let saveData;
+        try {
+          saveData = await saveRes.json();
+        } catch (e) {
+          throw new Error('Erro no servidor ao salvar os dados. (Verifique os logs da Vercel)');
+        }
+        
         if (!saveRes.ok) throw new Error(saveData.error || 'Erro ao salvar dados');
 
         setSuccessData({ filename: saveData.filename, id: saveData.id });

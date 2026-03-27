@@ -16,7 +16,8 @@ app.use(cors());
 app.use(express.json());
 
 // Ensure 'dados' directory exists
-const dadosDir = path.join(process.cwd(), 'dados');
+const isVercel = process.env.VERCEL === '1' || process.env.VERCEL_ENV;
+const dadosDir = isVercel ? '/tmp/dados' : path.join(process.cwd(), 'dados');
 if (!fs.existsSync(dadosDir)) {
   fs.mkdirSync(dadosDir, { recursive: true });
 }
