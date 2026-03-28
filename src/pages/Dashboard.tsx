@@ -17,6 +17,10 @@ export default function Dashboard() {
           fetch('/api/sites', { headers: { Authorization: `Bearer ${token}` } })
         ]);
         
+        if (!statsRes.ok || !sitesRes.ok) {
+          throw new Error('Failed to fetch dashboard data');
+        }
+        
         const statsData = await statsRes.json();
         const sitesData = await sitesRes.json();
         
@@ -102,10 +106,10 @@ export default function Dashboard() {
                     </div>
                   </div>
                   <div className="mt-2 sm:flex sm:justify-between">
-                    <div className="sm:flex">
-                      <p className="flex items-center text-sm text-zinc-500">
+                    <div className="sm:flex min-w-0">
+                      <p className="flex items-center text-sm text-zinc-500 truncate">
                         <FileJson className="flex-shrink-0 mr-1.5 h-4 w-4 text-emerald-600" />
-                        {site.slug}
+                        <span className="truncate">{site.slug}</span>
                       </p>
                     </div>
                   </div>

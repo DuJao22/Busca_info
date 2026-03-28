@@ -6,11 +6,13 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import db from './src/db.js';
 import fs from 'fs';
+import crypto from 'crypto';
+import { GoogleGenAI, Type } from '@google/genai';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-change-in-prod';
 
 const app = express();
-const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+const PORT = 3000;
 
 app.use(cors());
 app.use(express.json());
@@ -57,25 +59,74 @@ app.post('/api/auth/login', (req, res) => {
   }
 
   const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '24h' });
-  res.json({ token, user: { id: user.id, username: user.username, role: user.role } });
+  res.json({ token, user: { id: user.id, username: user.username, role: user.role, api_key: user.api_key } });
 });
 
 // Get current user
 app.get('/api/auth/me', authenticateToken, (req: any, res) => {
-  res.json(req.user);
+  const user = db.prepare('SELECT id, username, role, api_key FROM users WHERE id = ?').get(req.user.id) as any;
+  res.json(user);
 });
 
 // Get settings
 app.get('/api/settings', authenticateToken, (req: any, res) => {
-  if (req.user.role !== 'admin') {
-    return res.status(403).json({ error: 'Acesso negado' });
-  }
   const settings = db.prepare('SELECT key, value FROM settings').all() as any[];
   const settingsMap = settings.reduce((acc, curr) => {
     acc[curr.key] = curr.value;
     return acc;
   }, {});
   res.json(settingsMap);
+});
+
+// Users Management
+app.get('/api/users', authenticateToken, (req: any, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Acesso negado' });
+  }
+  const users = db.prepare('SELECT id, username, role, api_key FROM users').all();
+  res.json(users);
+});
+
+app.post('/api/users', authenticateToken, (req: any, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Acesso negado' });
+  }
+  const { username, password, role } = req.body;
+  if (!username || !password || !role) {
+    return res.status(400).json({ error: 'Todos os campos são obrigatórios' });
+  }
+  
+  const existingUser = db.prepare('SELECT id FROM users WHERE LOWER(username) = LOWER(?)').get(username);
+  if (existingUser) {
+    return res.status(400).json({ error: 'Usuário já existe' });
+  }
+
+  try {
+    const hash = bcrypt.hashSync(password, 10);
+    const apiKey = crypto.randomBytes(24).toString('hex');
+    db.prepare('INSERT INTO users (username, password_hash, role, api_key) VALUES (?, ?, ?, ?)').run(username, hash, role, apiKey);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error creating user:', error);
+    res.status(500).json({ error: 'Erro ao criar usuário' });
+  }
+});
+
+app.delete('/api/users/:id', authenticateToken, (req: any, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Acesso negado' });
+  }
+  if (parseInt(req.params.id) === req.user.id) {
+    return res.status(400).json({ error: 'Não é possível excluir o próprio usuário' });
+  }
+  
+  try {
+    db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting user:', error);
+    res.status(500).json({ error: 'Erro ao excluir usuário' });
+  }
 });
 
 // Save settings
@@ -104,13 +155,18 @@ app.post('/api/settings', authenticateToken, (req: any, res) => {
 
 // Dashboard Stats
 app.get('/api/stats', authenticateToken, (req: any, res) => {
-  const total = db.prepare('SELECT COUNT(*) as count FROM sites').get() as any;
-  const today = db.prepare("SELECT COUNT(*) as count FROM sites WHERE date(created_at) = date('now')").get() as any;
-  
-  res.json({
-    total: total.count,
-    today: today.count
-  });
+  try {
+    const total = db.prepare('SELECT COUNT(*) as count FROM sites').get() as any;
+    const today = db.prepare("SELECT COUNT(*) as count FROM sites WHERE date(created_at) = date('now')").get() as any;
+    
+    res.json({
+      total: total.count,
+      today: today.count
+    });
+  } catch (error) {
+    console.error('Error in /api/stats:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // Save Analyzed Data
@@ -142,8 +198,13 @@ app.post('/api/analyze/save', authenticateToken, (req: any, res) => {
 
 // List Analyzed Links
 app.get('/api/sites', authenticateToken, (req: any, res) => {
-  const sites = db.prepare('SELECT * FROM sites ORDER BY created_at DESC').all();
-  res.json(sites);
+  try {
+    const sites = db.prepare('SELECT * FROM sites ORDER BY created_at DESC').all();
+    res.json(sites);
+  } catch (error) {
+    console.error('Error in /api/sites:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // Download JSON
@@ -175,6 +236,120 @@ app.post('/api/expand-url', authenticateToken, async (req: any, res) => {
   } catch (error: any) {
     console.error('Error expanding URL:', error);
     res.status(500).json({ error: 'Failed to expand URL' });
+  }
+});
+
+// Analyze Link Endpoint
+app.post('/api/analyze-link', async (req: any, res: any) => {
+  // Check for authorization (either JWT or a simple API key passed in headers)
+  const authHeader = req.headers['authorization'];
+  const apiKeyHeader = req.headers['x-api-key'];
+  
+  let isAuthenticated = false;
+  
+  if (apiKeyHeader) {
+     // Check if it matches a user's API key
+     const user = db.prepare('SELECT id FROM users WHERE api_key = ?').get(apiKeyHeader) as any;
+     if (user) {
+       isAuthenticated = true;
+     }
+  } else if (authHeader) {
+     const token = authHeader.split(' ')[1];
+     try {
+       jwt.verify(token, JWT_SECRET);
+       isAuthenticated = true;
+     } catch (e) {
+       // ignore
+     }
+  }
+
+  if (!isAuthenticated) {
+    return res.status(401).json({ error: 'Não autorizado. Forneça um token JWT válido ou um x-api-key configurado.' });
+  }
+
+  const { url } = req.body;
+  if (!url) {
+    return res.status(400).json({ error: 'A URL é obrigatória no corpo da requisição ({"url": "..."}).' });
+  }
+
+  try {
+    // Get Gemini API Key
+    let geminiApiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
+    const settings = db.prepare('SELECT key, value FROM settings').all() as any[];
+    const settingsMap = settings.reduce((acc, curr) => {
+      acc[curr.key] = curr.value;
+      return acc;
+    }, {} as any);
+
+    if (settingsMap.gemini_api_key) {
+      geminiApiKey = settingsMap.gemini_api_key;
+    }
+
+    if (!geminiApiKey) {
+      return res.status(500).json({ error: 'Chave da API do Gemini não configurada no servidor.' });
+    }
+
+    const ai = new GoogleGenAI({ apiKey: geminiApiKey });
+    
+    // Extract place name hint if possible
+    let placeNameHint = '';
+    try {
+      const urlObj = new URL(url);
+      const pathParts = urlObj.pathname.split('/');
+      const placePart = pathParts.find(part => part.includes('+') || part.includes('-'));
+      if (placePart) {
+        placeNameHint = decodeURIComponent(placePart.replace(/\+/g, ' '));
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.1-pro-preview",
+      contents: `Você é um especialista em extração de dados.
+Você recebeu o seguinte link do Google Maps: ${url}
+${placeNameHint ? `\nDica: O nome do estabelecimento extraído da URL parece ser "${placeNameHint}".` : ''}
+
+Sua missão é OBRIGATÓRIA:
+1. USE A FERRAMENTA DE BUSCA DO GOOGLE (Google Search) para pesquisar este link ou o nome do estabelecimento que aparece na URL.
+2. Descubra EXATAMENTE qual é o estabelecimento real (nome, nicho, endereço, telefone).
+3. Se o link for genérico, quebrado, ou se você NÃO TIVER 100% DE CERTEZA de qual é o estabelecimento exato, você DEVE definir "success" como false e preencher o "errorMessage" explicando que não foi possível identificar o local e pedindo para o usuário verificar o link.
+4. Se você encontrou o estabelecimento com sucesso, defina "success" como true e extraia os dados reais: Nome da empresa, telefone (apenas números com DDD), endereço completo e cidade.
+5. Identifique o NICHO exato (ex: barbearia, lanchonete, clínica, restaurante).
+6. Crie uma DESCRIÇÃO detalhada do negócio.
+7. Liste os principais serviços oferecidos (ou que fazem sentido para o nicho), separados por vírgula.
+
+NÃO INVENTE DADOS. Se não souber ou não encontrar o local exato, retorne success: false.`,
+      config: {
+        tools: [{ googleSearch: {} }],
+        toolConfig: { includeServerSideToolInvocations: true },
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            success: { type: Type.BOOLEAN, description: "True se encontrou o estabelecimento exato, False se não conseguiu ou se o link for inválido" },
+            errorMessage: { type: Type.STRING, description: "Mensagem de erro amigável se success for false" },
+            name: { type: Type.STRING, description: "Nome da empresa" },
+            phone: { type: Type.STRING, description: "Telefone com DDD, apenas números" },
+            address: { type: Type.STRING, description: "Endereço completo" },
+            city: { type: Type.STRING, description: "Cidade e Estado" },
+            description: { type: Type.STRING, description: "Descrição do negócio" },
+            services: { type: Type.STRING, description: "Lista de serviços separados por vírgula" },
+          },
+          required: ["success"]
+        }
+      }
+    });
+
+    let jsonStr = response.text || '';
+    jsonStr = jsonStr.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const result = JSON.parse(jsonStr);
+
+    return res.json(result);
+
+  } catch (error: any) {
+    console.error('Error analyzing link:', error);
+    return res.status(500).json({ error: 'Erro ao analisar o link com a IA', details: error.message });
   }
 });
 

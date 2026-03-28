@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { Settings, Key, CheckCircle, AlertCircle } from 'lucide-react';
 
 export default function SettingsPage() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [apiKey, setApiKey] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
@@ -114,6 +114,41 @@ export default function SettingsPage() {
               </div>
               <p className="mt-2 text-sm text-zinc-500">
                 Você pode gerar uma chave gratuitamente no <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-emerald-600 hover:text-emerald-500 underline">Google AI Studio</a>.
+              </p>
+            </div>
+
+            <div className="pt-6 border-t border-zinc-200">
+              <h3 className="text-lg font-medium text-zinc-900 flex items-center gap-2 mb-4">
+                <Key className="w-5 h-5 text-emerald-600" />
+                Sua Chave de API Externa (Webhook)
+              </h3>
+              <label htmlFor="webhookKey" className="block text-sm font-medium text-zinc-700">
+                Token de Autenticação (x-api-key)
+              </label>
+              <div className="mt-1 flex rounded-md shadow-sm">
+                <input
+                  type="text"
+                  name="webhookKey"
+                  id="webhookKey"
+                  value={user?.api_key || ''}
+                  readOnly
+                  className="focus:ring-emerald-500 focus:border-emerald-500 flex-1 block w-full rounded-none rounded-l-md sm:text-sm border-zinc-300 px-4 py-2 border bg-zinc-50 text-zinc-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (user?.api_key) {
+                      navigator.clipboard.writeText(user.api_key);
+                      alert('Chave copiada!');
+                    }
+                  }}
+                  className="-ml-px relative inline-flex items-center space-x-2 px-4 py-2 border border-zinc-300 text-sm font-medium rounded-r-md text-zinc-700 bg-zinc-50 hover:bg-zinc-100 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500"
+                >
+                  Copiar
+                </button>
+              </div>
+              <p className="mt-2 text-sm text-zinc-500">
+                Esta é a sua chave exclusiva. Use-a no cabeçalho <code>x-api-key</code> para autenticar requisições externas.
               </p>
             </div>
           </div>

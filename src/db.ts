@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 
 // Ensure data directory exists
 // On Vercel, only /tmp is writable. Otherwise, use local ./data folder.
@@ -23,7 +24,8 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
-    role TEXT NOT NULL DEFAULT 'operator'
+    role TEXT NOT NULL DEFAULT 'operator',
+    api_key TEXT UNIQUE
   );
 
   CREATE TABLE IF NOT EXISTS sites (
@@ -49,5 +51,29 @@ db.exec(`
     value TEXT NOT NULL
   );
 `);
+
+// Add api_key column if it doesn't exist (for existing databases)
+try {
+  db.exec("ALTER TABLE users ADD COLUMN api_key TEXT");
+} catch (e) {
+  // Column already exists, ignore
+}
+
+try {
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_api_key ON users(api_key)");
+} catch (e) {
+  // ignore
+}
+
+// Generate API keys for users that don't have one
+const usersWithoutApiKey = db.prepare('SELECT id FROM users WHERE api_key IS NULL').all() as { id: number }[];
+if (usersWithoutApiKey.length > 0) {
+  const updateApiKey = db.prepare('UPDATE users SET api_key = ? WHERE id = ?');
+  db.transaction(() => {
+    for (const user of usersWithoutApiKey) {
+      updateApiKey.run(crypto.randomBytes(24).toString('hex'), user.id);
+    }
+  })();
+}
 
 export default db;

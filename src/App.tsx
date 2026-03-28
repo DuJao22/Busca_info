@@ -7,6 +7,8 @@ import Dashboard from './pages/Dashboard';
 import CreateSite from './pages/CreateSite';
 import SiteList from './pages/SiteList';
 import SettingsPage from './pages/SettingsPage';
+import ApiDocs from './pages/ApiDocs';
+import UsersPage from './pages/UsersPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -31,6 +33,8 @@ export default function App() {
             <Route path="create" element={<CreateSite />} />
             <Route path="sites" element={<SiteList />} />
             <Route path="settings" element={<SettingsPage />} />
+            <Route path="api-docs" element={<ApiDocs />} />
+            <Route path="users" element={<UsersPage />} />
           </Route>
         </Routes>
       </BrowserRouter>

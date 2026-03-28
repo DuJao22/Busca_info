@@ -16,6 +16,7 @@ export default function SiteList() {
   const fetchSites = async () => {
     try {
       const res = await fetch('/api/sites', { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error('Failed to fetch sites');
       const data = await res.json();
       setSites(data);
     } catch (error) {

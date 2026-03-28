@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { LayoutDashboard, PlusCircle, List, LogOut, Menu, X, Building2, Settings } from 'lucide-react';
+import { LayoutDashboard, PlusCircle, List, LogOut, Menu, X, Building2, Settings, Code, Users } from 'lucide-react';
 
 export default function DashboardLayout() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -18,8 +18,13 @@ export default function DashboardLayout() {
     { name: 'Dashboard', href: '/', icon: LayoutDashboard },
     { name: 'Nova Análise', href: '/create', icon: PlusCircle },
     { name: 'Minhas Análises', href: '/sites', icon: List },
+    { name: 'API Externa', href: '/api-docs', icon: Code },
     { name: 'Configurações', href: '/settings', icon: Settings },
   ];
+
+  if (user?.role === 'admin') {
+    navigation.push({ name: 'Usuários', href: '/users', icon: Users });
+  }
 
   return (
     <div className="min-h-screen bg-zinc-50 flex">

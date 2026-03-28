@@ -57,7 +57,7 @@ export default function CreateSite() {
         headers: { Authorization: `Bearer ${token}` }
       });
       
-      let apiKey = process.env.GEMINI_API_KEY; // Fallback to env
+      let apiKey = (import.meta as any).env.VITE_GEMINI_API_KEY; // Fallback to env
       
       if (settingsRes.ok) {
         const settings = await settingsRes.json();
@@ -91,7 +91,7 @@ Sua missão é OBRIGATÓRIA:
 
 NÃO INVENTE DADOS. Se não souber ou não encontrar o local exato, retorne success: false.`,
         config: {
-          tools: [{ googleSearch: {} }, { urlContext: {} }],
+          tools: [{ googleSearch: {} }],
           toolConfig: { includeServerSideToolInvocations: true },
           responseMimeType: "application/json",
           responseSchema: {
@@ -112,7 +112,15 @@ NÃO INVENTE DADOS. Se não souber ou não encontrar o local exato, retorne succ
       });
 
       if (response.text) {
-        const extractedData = JSON.parse(response.text);
+        let extractedData;
+        try {
+          // Remove markdown code blocks if the AI includes them
+          const cleanedText = response.text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+          extractedData = JSON.parse(cleanedText);
+        } catch (parseError) {
+          console.error("JSON Parse Error:", parseError, "Raw text:", response.text);
+          throw new Error("A resposta da IA não estava em um formato válido.");
+        }
         
         if (!extractedData.success) {
           setError(extractedData.errorMessage || 'Não foi possível identificar o estabelecimento a partir deste link. Por favor, verifique o link.');
